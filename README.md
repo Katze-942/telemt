@@ -66,7 +66,7 @@ WantedBy=multi-user.target
 ### Telegram Calls via MTProxy
 - Telegram architecture does **NOT allow calls via MTProxy**, but only via SOCKS5, which cannot be obfuscated
 ### How does DPI see MTProxy TLS?
-- DPI sees MTProxy in Fake TLS mode as TLS
+- DPI sees MTProxy in Fake TLS (ee) mode as TLS 1.3
 - the SNI you specify sends both the client and the server;
 - ALPN is similar to HTTP 1.1/2;
 - high entropy, which is normal for AES-encrypted traffic;
