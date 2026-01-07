@@ -8,6 +8,12 @@
   - [Build](#build)
 - [How to use?](#how-to-use)
   - [Systemd Method](#telemt-via-systemd)
+- [Configuration](#configuration)
+  - [Minimal Configuration](#minimal-configuration-for-first-start)
+  - [Advanced](#advanced)
+    - [Upstream Manager](#upstream-manager)
+      - [IP](#bind-on-ip)
+      - [SOCKS](#socks45-as-upstream)
 - [FAQ](#faq)
   - [Telegram Calls](#telegram-calls-via-mtproxy)
   - [DPI](#how-does-dpi-see-mtproxy-tls)
@@ -72,28 +78,8 @@ Open nano
 ```bash
 nano /etc/telemt.toml
 ```
-```bash
-port = 443                              # Listening port
+paste your config from [Configuration](#configuration) section
 
-[users]
-hello = "00000000000000000000000000000000" # Replace the secret with one generated before
-
-[modes]
-classic = false                         # Plain obfuscated mode
-secure = false                          # dd-prefix mode
-tls = true                              # Fake TLS - ee-prefix
-
-tls_domain = "petrovich.ru"             # Domain for ee-secret and masking
-mask = true                             # Enable masking of bad traffic
-mask_host = "petrovich.ru"              # Optional override for mask destination
-mask_port = 443                         # Port for masking
-
-prefer_ipv6 = false                     # Try IPv6 DCs first if true
-fast_mode = true                        # Use "fast" obfuscation variant
-
-client_keepalive = 600                  # Seconds
-client_ack_timeout = 300                # Seconds
-```
 then Ctrl+X -> Y -> Enter to save
 
 **2. Create service on /etc/systemd/system/telemt.service**
@@ -125,9 +111,67 @@ then Ctrl+X -> Y -> Enter to save
 
 **5.** In Shell type `systemctl enable telemt` - then telemt will start with system startup, after the network is up
 
+## Configuration
+### Minimal Configuration for First Start
+```toml
+port = 443                              # Listening port
+show_links = ["tele", "hello"]
+
+[users]
+tele = "00000000000000000000000000000000" # Replace the secret with one generated before
+hello = "00000000000000000000000000000000" # Replace the secret with one generated before
+
+[modes]
+classic = false                         # Plain obfuscated mode
+secure = false                          # dd-prefix mode
+tls = true                              # Fake TLS - ee-prefix
+
+tls_domain = "petrovich.ru"             # Domain for ee-secret and masking
+mask = true                             # Enable masking of bad traffic
+mask_host = "petrovich.ru"              # Optional override for mask destination
+mask_port = 443                         # Port for masking
+
+prefer_ipv6 = false                     # Try IPv6 DCs first if true
+fast_mode = true                        # Use "fast" obfuscation variant
+
+client_keepalive = 600                  # Seconds
+client_ack_timeout = 300                # Seconds
+```
+### Advanced
+#### Upstream Manager
+To specify upstream, add config.toml to the end:
+##### Bind on IP
+```toml
+[[upstreams]]
+type = "direct"
+weight = 1
+enabled = true
+interface = "192.168.1.100" # Change to your outgoing IP
+```
+##### SOCKS4/5 as Upstream
+- Without Auth:
+```toml
+[[upstreams]]
+type = "socks5"            # Specify SOCKS4 or SOCKS5
+address = "1.2.3.4:1234"   # SOCKS-server Address
+weight = 1                 # Set Weight for Scenarios
+enabled = true
+```
+
+- With Auth:
+```toml
+[[upstreams]]
+type = "socks5"            # Specify SOCKS4 or SOCKS5
+address = "1.2.3.4:1234" # SOCKS-server Address
+username = "user"          # Username for Auth on SOCKS-server
+password = "pass"          # Password for Auth on SOCKS-server
+weight = 1                 # Set Weight for Scenarios
+enabled = true
+```
+
 ## FAQ
 ### Telegram Calls via MTProxy
-- Telegram architecture does **NOT allow calls via MTProxy**, but only via SOCKS5, which cannot be obfuscated
+- Telegram architecture **does NOT allow calls via MTProxy**, but only via SOCKS5, which cannot be obfuscated
 ### How does DPI see MTProxy TLS?
 - DPI sees MTProxy in Fake TLS (ee) mode as TLS 1.3
 - the SNI you specify sends both the client and the server;
