@@ -3,11 +3,8 @@
 use rand::{Rng, RngCore, SeedableRng};
 use rand::rngs::StdRng;
 use parking_lot::Mutex;
+use zeroize::Zeroize;
 use crate::crypto::AesCtr;
-use once_cell::sync::Lazy;
-
-/// Global secure random instance
-pub static SECURE_RANDOM: Lazy<SecureRandom> = Lazy::new(SecureRandom::new);
 
 /// Cryptographically secure PRNG with AES-CTR
 pub struct SecureRandom {
@@ -20,18 +17,30 @@ struct SecureRandomInner {
     buffer: Vec<u8>,
 }
 
+impl Drop for SecureRandomInner {
+    fn drop(&mut self) {
+        self.buffer.zeroize();
+    }
+}
+
 impl SecureRandom {
     pub fn new() -> Self {
-        let mut rng = StdRng::from_entropy();
+        let mut seed_source = rand::rng();
+        let mut rng = StdRng::from_rng(&mut seed_source);
         
         let mut key = [0u8; 32];
         rng.fill_bytes(&mut key);
-        let iv: u128 = rng.gen();
+        let iv: u128 = rng.random();
+        
+        let cipher = AesCtr::new(&key, iv);
+        
+        // Zeroize local key copy — cipher already consumed it
+        key.zeroize();
         
         Self {
             inner: Mutex::new(SecureRandomInner {
                 rng,
-                cipher: AesCtr::new(&key, iv),
+                cipher,
                 buffer: Vec::with_capacity(1024),
             }),
         }
@@ -78,7 +87,6 @@ impl SecureRandom {
             result |= (b as u64) << (i * 8);
         }
         
-        // Mask extra bits
         if k < 64 {
             result &= (1u64 << k) - 1;
         }
@@ -107,13 +115,13 @@ impl SecureRandom {
     /// Generate random u32
     pub fn u32(&self) -> u32 {
         let mut inner = self.inner.lock();
-        inner.rng.gen()
+        inner.rng.random()
     }
     
     /// Generate random u64
     pub fn u64(&self) -> u64 {
         let mut inner = self.inner.lock();
-        inner.rng.gen()
+        inner.rng.random()
     }
 }
 
@@ -162,12 +170,10 @@ mod tests {
     fn test_bits() {
         let rng = SecureRandom::new();
         
-        // Single bit should be 0 or 1
         for _ in 0..100 {
             assert!(rng.bits(1) <= 1);
         }
         
-        // 8 bits should be 0-255
         for _ in 0..100 {
             assert!(rng.bits(8) <= 255);
         }
@@ -185,10 +191,8 @@ mod tests {
             }
         }
         
-        // Should have seen all items
         assert_eq!(seen.len(), 5);
         
-        // Empty slice should return None
         let empty: Vec<i32> = vec![];
         assert!(rng.choose(&empty).is_none());
     }
@@ -201,12 +205,10 @@ mod tests {
         let mut shuffled = original.clone();
         rng.shuffle(&mut shuffled);
         
-        // Should contain same elements
         let mut sorted = shuffled.clone();
         sorted.sort();
         assert_eq!(sorted, original);
         
-        // Should be different order (with very high probability)
         assert_ne!(shuffled, original);
     }
 }
