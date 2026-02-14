@@ -29,7 +29,6 @@ use crate::proxy::{ClientHandler, handle_client_stream};
 use crate::transport::{create_unix_listener, cleanup_unix_socket};
 use crate::crypto::SecureRandom;
 use crate::ip_tracker::UserIpTracker;
-use crate::proxy::ClientHandler;
 use crate::stats::{ReplayChecker, Stats};
 use crate::stream::BufferPool;
 use crate::transport::middle_proxy::MePool;
@@ -482,6 +481,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 let buffer_pool = buffer_pool.clone();
                 let rng = rng.clone();
                 let me_pool = me_pool.clone();
+                let ip_tracker = ip_tracker.clone();
 
                 let unix_conn_counter = std::sync::Arc::new(
                     std::sync::atomic::AtomicU64::new(1)
@@ -502,12 +502,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                                 let buffer_pool = buffer_pool.clone();
                                 let rng = rng.clone();
                                 let me_pool = me_pool.clone();
+                                let ip_tracker = ip_tracker.clone();
 
                                 tokio::spawn(async move {
                                     if let Err(e) = handle_client_stream(
                                         stream, fake_peer, config, stats,
                                         upstream_manager, replay_checker, buffer_pool, rng,
-                                        me_pool,
+                                        me_pool, ip_tracker,
                                     ).await {
                                         debug!(error = %e, "Unix socket connection error");
                                     }
