@@ -37,11 +37,6 @@ use crate::proxy::handshake::{HandshakeSuccess, handle_mtproto_handshake, handle
 use crate::proxy::masking::handle_bad_client;
 use crate::proxy::middle_relay::handle_via_middle_proxy;
 
-/// Handle a client connection from any stream type (TCP, Unix socket)
-///
-/// This is the generic entry point for client handling. Unlike `ClientHandler::new().run()`,
-/// it skips TCP-specific socket configuration (TCP_NODELAY, keepalive, TCP_USER_TIMEOUT)
-/// which is appropriate for non-TCP streams like Unix sockets.
 pub async fn handle_client_stream<S>(
     mut stream: S,
     peer: SocketAddr,
@@ -159,13 +154,27 @@ where
                 HandshakeResult::Error(e) => return Err(e),
             };
 
-            Ok(HandshakeOutcome::NeedsRelay(Box::pin(
-                RunningClientHandler::handle_authenticated_static(
-                    crypto_reader, crypto_writer, success,
-                    upstream_manager, stats, config, buffer_pool, rng, me_pool,
-                    local_addr, peer, ip_tracker,
-                ),
-            )))
+            RunningClientHandler::handle_authenticated_static(
+                crypto_reader,
+                crypto_writer,
+                success,
+                upstream_manager,
+                stats,
+                config,
+                buffer_pool,
+                rng,
+                me_pool,
+                local_addr,
+                peer,
+                ip_tracker.clone(),
+            ).await
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(())) => {
+            debug!(peer = %peer, "Connection handled successfully");
+            Ok(())
         }
     }).await {
         Ok(Ok(outcome)) => outcome,
@@ -186,6 +195,7 @@ where
         HandshakeOutcome::Handled => Ok(()),
     }
 }
+
 
 pub struct ClientHandler;
 
@@ -235,6 +245,7 @@ impl RunningClientHandler {
         self.stats.increment_connects_all();
 
         let peer = self.peer;
+        let ip_tracker = self.ip_tracker.clone();
         debug!(peer = %peer, "New connection");
 
         if let Err(e) = configure_client_socket(
@@ -275,6 +286,7 @@ impl RunningClientHandler {
 
         let is_tls = tls::is_tls_handshake(&first_bytes[..3]);
         let peer = self.peer;
+        let ip_tracker = self.ip_tracker.clone();
 
         debug!(peer = %peer, is_tls = is_tls, "Handshake type detected");
 
@@ -287,6 +299,7 @@ impl RunningClientHandler {
 
     async fn handle_tls_client(mut self, first_bytes: [u8; 5]) -> Result<HandshakeOutcome> {
         let peer = self.peer;
+        let ip_tracker = self.ip_tracker.clone();
 
         let tls_len = u16::from_be_bytes([first_bytes[3], first_bytes[4]]) as usize;
 
@@ -381,6 +394,7 @@ impl RunningClientHandler {
 
     async fn handle_direct_client(mut self, first_bytes: [u8; 5]) -> Result<HandshakeOutcome> {
         let peer = self.peer;
+        let ip_tracker = self.ip_tracker.clone();
 
         if !self.config.general.modes.classic && !self.config.general.modes.secure {
             debug!(peer = %peer, "Non-TLS modes disabled");
@@ -442,9 +456,9 @@ impl RunningClientHandler {
 
     /// Main dispatch after successful handshake.
     /// Two modes:
-    ///   - Direct: TCP relay to TG DC (existing behavior)
+    ///   - Direct: TCP relay to TG DC (existing behavior)  
     ///   - Middle Proxy: RPC multiplex through ME pool (new — supports CDN DCs)
-    pub(crate) async fn handle_authenticated_static<R, W>(
+    async fn handle_authenticated_static<R, W>(
         client_reader: CryptoReader<R>,
         client_writer: CryptoWriter<W>,
         success: HandshakeSuccess,
